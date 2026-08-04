@@ -1,6 +1,6 @@
 # ResearchFlow AI
 
-ResearchFlow AI is a multi-agent academic research assistant built around Google ADK agents with a FastAPI backend and Telegram bot interface. It helps researchers analyze seminal academic papers, find recent citing papers, identify research trends, and discover promising future research areas.
+ResearchFlow AI is a multi-agent academic research assistant built around Google ADK agents with  FastAPI backend and Telegram bot interface. It helps researchers analyze seminal academic papers, find recent citing papers, identify research trends, and discover promising future research areas.
 
 **For detailed project specifications and requirements, see the [SRS Document](./SRS.md).**
 
