@@ -1,12 +1,6 @@
-from .telegram_messages import (
-    send_long_message,
-    safe_delete_message,
-    safe_edit_text,
-)
-
 import logging
+import os
 
-import httpx
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -17,20 +11,15 @@ from telegram.ext import (
     filters,
 )
 
+from my_agent.backend.adk_runner import ask_agent
+from my_agent.backend.telegram_messages import (
+    safe_delete_message,
+    safe_edit_text,
+    send_long_message,
+)
 from my_agent.env import require_env
 
-# --------------------------------------------------------------------
-# Environment Variables
-# --------------------------------------------------------------------
-
 BOT_TOKEN = require_env("TELEGRAM_TOKEN")
-
-# Change this after deployment
-API = "https://researchflow-ai-1.onrender.com/chat"
-
-# --------------------------------------------------------------------
-# Logging
-# --------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,90 +28,53 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# --------------------------------------------------------------------
-# HTTP Timeout
-# --------------------------------------------------------------------
 
-TIMEOUT = httpx.Timeout(
-    connect=10.0,
-    read=300.0,      # Wait up to 5 minutes for the AI response
-    write=30.0,
-    pool=10.0,
-)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
 
-# --------------------------------------------------------------------
-# Commands
-# --------------------------------------------------------------------
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Welcome to ResearchFlow AI!\n\n"
+        "Welcome to ResearchFlow AI!\n\n"
         "I can help you analyze research papers, discover recent work, "
         "and suggest future research directions.\n\n"
         "Send me a message to begin."
     )
 
 
-# --------------------------------------------------------------------
-# Chat Handler
-# --------------------------------------------------------------------
-
-
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None or update.effective_user is None or update.effective_chat is None:
+        logger.info("Ignoring Telegram update without a text message")
+        return
 
     user_id = str(update.effective_user.id)
     message = update.message.text
 
+    if not message:
+        logger.info("Ignoring Telegram message without text from %s", user_id)
+        return
+
     logger.info("Message received from %s", user_id)
 
-    # Show typing animation
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id,
         action=ChatAction.TYPING,
     )
 
-    # Inform the user
     processing_msg = await update.message.reply_text(
-        "📄 Request received.\n\n"
-        "🔍 ResearchFlow AI is analyzing your request.\n"
-        "⏳ Please wait..."
+        "Request received.\n\n"
+        "ResearchFlow AI is analyzing your request.\n"
+        "Please wait..."
     )
 
-    payload = {
-        "user_id": user_id,
-        "message": message,
-    }
-
     try:
+        reply = await ask_agent(user_id, message)
+        if not reply:
+            reply = "Sorry, I couldn't generate a response."
 
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-
-            response = await client.post(
-                API,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                },
-            )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        reply = data.get(
-            "response",
-            "Sorry, I couldn't generate a response.",
-        )
-
-        logger.info(
-            "Generated response length: %d characters",
-            len(reply),
-        )
+        logger.info("Generated response length: %d characters", len(reply))
 
         try:
             await safe_delete_message(processing_msg)
-
             await send_long_message(
                 context.bot,
                 update.effective_chat.id,
@@ -130,67 +82,63 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             logger.exception("Failed while sending Telegram response")
+            await update.message.reply_text("Failed to send the response.")
 
-            await update.message.reply_text(
-                "❌ Failed to send the response."
-            )
-
-    except httpx.ReadTimeout:
-
-        logger.exception("Backend timeout")
-
+    except RuntimeError as exc:
+        logger.exception("Agent error")
         await safe_edit_text(
             processing_msg.edit_text,
-            "⏳ The analysis is taking longer than expected.\n\n"
-            "Please try again in a few moments."
+            "ResearchFlow AI could not complete the request.\n\n"
+            f"{str(exc)}",
         )
 
-    except httpx.ConnectError:
-
-        logger.exception("Cannot connect to backend")
-
+    except Exception as exc:
+        logger.exception("Unexpected error")
         await safe_edit_text(
             processing_msg.edit_text,
-            "❌ Unable to connect to ResearchFlow AI backend.\n\n"
-            "Please try again later."
-        )
-
-    except httpx.HTTPStatusError as e:
-
-        logger.exception("HTTP Error")
-
-        await safe_edit_text(
-            processing_msg.edit_text,
-            f"⚠️ Backend returned an error.\n\n"
-            f"Status Code: {e.response.status_code}"
-        )
-
-    except Exception as e:
-
-        logger.exception("Unexpected Error")
-
-        await safe_edit_text(
-            processing_msg.edit_text,
-            "❌ An unexpected error occurred.\n\n"
-            f"{str(e)}"
+            "An unexpected error occurred.\n\n"
+            f"{str(exc)}",
         )
 
 
-# --------------------------------------------------------------------
-# Telegram Application
-# --------------------------------------------------------------------
+def create_telegram_application() -> Application:
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+    return application
 
-app = Application.builder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
+telegram_app = create_telegram_application()
 
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        chat,
+
+async def process_telegram_update(payload: dict) -> None:
+    update = Update.de_json(payload, telegram_app.bot)
+    if update is None:
+        logger.info("Ignoring invalid Telegram update payload")
+        return
+
+    await telegram_app.process_update(update)
+
+
+async def set_telegram_webhook(webhook_url: str, secret_token: str | None = None) -> None:
+    await telegram_app.bot.set_webhook(
+        url=webhook_url,
+        secret_token=secret_token,
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
+
+
+async def delete_telegram_webhook() -> None:
+    await telegram_app.bot.delete_webhook(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    if os.environ.get("ENABLE_TELEGRAM_POLLING") != "1":
+        raise RuntimeError(
+            "Long polling is disabled. Run FastAPI and use /telegram/webhook instead. "
+            "For temporary local debugging only, set ENABLE_TELEGRAM_POLLING=1."
         )
-)
 
-logger.info("ResearchFlow AI Telegram Bot Started")
-
-app.run_polling()
+    logger.info("Starting ResearchFlow AI Telegram bot with temporary long polling")
+    telegram_app.run_polling()
