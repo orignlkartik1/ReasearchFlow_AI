@@ -26,7 +26,7 @@ from my_agent.env import require_env
 BOT_TOKEN = require_env("TELEGRAM_TOKEN")
 
 # Change this after deployment
-API = "http://127.0.0.1:8000/chat"
+API = "https://researchflow-ai-1.onrender.com/chat"
 
 # --------------------------------------------------------------------
 # Logging
