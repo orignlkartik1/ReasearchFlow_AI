@@ -4,6 +4,13 @@
 
 ResearchFlow AI is designed to reduce the manual effort of early literature exploration. The assistant should help users move from a seminal paper to a structured view of recent work, open gaps, and future research directions.
 
+## Design Document Map
+
+- [HLD.md](./HLD.md) describes the high-level system design, layers, deployment model, and major decisions.
+- [LLD.md](./LLD.md) describes implementation-level modules, functions, contracts, and error handling.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) provides a concise architecture overview.
+- [SRS.md](./SRS.md) remains the source for requirements and acceptance criteria.
+
 ## Interaction Design
 
 The primary interaction is conversational:

@@ -8,10 +8,12 @@ All notable changes to ResearchFlow AI are documented here.
 
 - Project documentation set: contributing guide, code of conduct, architecture, security, design, and changelog.
 - Updated SRS aligned with the current implementation.
+- High-Level Design (`HLD.md`) and Low-Level Design (`LLD.md`) documents.
 
 ### Changed
 
 - README now documents webhook mode, model fallback configuration, current limitations, and the actual Python requirement from `pyproject.toml`.
+- SRS, architecture, and design docs now reference the dedicated HLD and LLD documents.
 
 ## [0.1.0] - 2026-08-08
 
@@ -25,4 +27,3 @@ All notable changes to ResearchFlow AI are documented here.
 - Telegram webhook endpoint with optional secret validation.
 - In-memory ADK session management.
 - LLM/search model configuration with fallback handling.
-

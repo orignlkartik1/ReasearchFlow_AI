@@ -2,7 +2,7 @@
 
 ## ResearchFlow AI
 
-**Document Version:** 4.0  
+**Document Version:** 4.1  
 **Date:** 2026-08-08  
 **Project:** ResearchFlow AI - Academic Research Assistant  
 **Author:** orignlkartik1
@@ -183,7 +183,12 @@ Coordinator agent: my_agent.agent
 Response returned to API client or Telegram user
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for implementation details.
+Design detail is maintained in:
+
+- [HLD.md](./HLD.md): high-level system design, system context, layers, deployment view, and major design decisions.
+- [LLD.md](./LLD.md): module-level design, concrete functions, API contracts, session logic, fallback behavior, and error handling.
+- [ARCHITECTURE.md](./ARCHITECTURE.md): concise architecture reference and data flow.
+- [DESIGN.md](./DESIGN.md): product, interaction, agent, response, API, and configuration design.
 
 ## 6. Data Requirements
 
@@ -245,7 +250,7 @@ Success response:
 - [ ] The Telegram bot handles long responses without exceeding message limits.
 - [ ] Model fallback configuration validates before execution.
 - [ ] Missing credentials fail with actionable messages.
-- [ ] README, SRS, architecture, design, security, contribution, code of conduct, and changelog documents are present.
+- [ ] README, SRS, HLD, LLD, architecture, design, security, contribution, code of conduct, and changelog documents are present.
 - [ ] No real secrets are included in documentation or examples.
 
 ## 9. Future Enhancements
@@ -266,3 +271,4 @@ Success response:
 | 2.0 | 2026-07-12 | orignlkartik1 | Added backend, FastAPI, and session details |
 | 3.0 | 2026-07-18 | orignlkartik1 | Expanded multi-turn and future enhancement requirements |
 | 4.0 | 2026-08-08 | orignlkartik1 | Aligned requirements with current code, webhook mode, model fallback, and documentation set |
+| 4.1 | 2026-08-08 | orignlkartik1 | Added HLD and LLD references for complete design traceability |

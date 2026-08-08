@@ -2,6 +2,8 @@
 
 ResearchFlow AI is organized around a small FastAPI backend and a Google ADK agent graph.
 
+For fuller design detail, use [HLD.md](./HLD.md) for the system-level view and [LLD.md](./LLD.md) for module-level behavior.
+
 ## Runtime View
 
 ```text
@@ -78,4 +80,3 @@ Search models must remain Gemini-compatible because ADK's built-in `google_searc
 Webhook mode is the intended runtime mode. `main.py` initializes the Telegram app during FastAPI lifespan and optionally registers a webhook when `TELEGRAM_WEBHOOK_URL` is configured.
 
 Polling mode is guarded by `ENABLE_TELEGRAM_POLLING=1` and should be used only for local debugging.
-

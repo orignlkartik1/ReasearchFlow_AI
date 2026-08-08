@@ -3,6 +3,7 @@
 ResearchFlow AI is a multi-agent academic research assistant built around Google ADK agents with  FastAPI backend and Telegram bot interface. It helps researchers analyze seminal academic papers, find recent citing papers, identify research trends, and discover promising future research areas.
 
 **For detailed project specifications and requirements, see the [SRS Document](./SRS.md).**
+Design documentation is split across [HLD.md](./HLD.md) for high-level system design and [LLD.md](./LLD.md) for module-level implementation design.
 
 ## Project Overview
 
@@ -35,10 +36,22 @@ ResearchFlow_AI/
 |           +-- agent.py                  # Future research sub-agent
 |           +-- prompt.py                 # Future research prompt
 +-- SRS.md                                # Detailed specifications
++-- HLD.md                                # High-level design
++-- LLD.md                                # Low-level design
++-- ARCHITECTURE.md                       # Architecture overview
++-- DESIGN.md                             # Product and interaction design
 +-- README.md                             # This file
 +-- pyproject.toml                        # Project metadata and dependencies
 +-- uv.lock                               # Dependency lock file
 ```
+
+## Design Documents
+
+- [SRS.md](./SRS.md): requirements, constraints, interfaces, and acceptance criteria
+- [HLD.md](./HLD.md): system context, layers, component responsibilities, and deployment view
+- [LLD.md](./LLD.md): modules, functions, API contracts, session handling, and error behavior
+- [ARCHITECTURE.md](./ARCHITECTURE.md): concise architecture reference
+- [DESIGN.md](./DESIGN.md): product, interaction, agent, and response design
 
 ## Main Components
 
