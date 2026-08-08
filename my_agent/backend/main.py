@@ -12,7 +12,9 @@ from my_agent.backend.telegram import (
     set_telegram_webhook,
     telegram_app,
 )
+from my_agent.env import load_environment
 
+load_environment()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_WEBHOOK_URL = os.environ.get("TELEGRAM_WEBHOOK_URL")
 
