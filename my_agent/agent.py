@@ -8,7 +8,7 @@ from .sub_agents.academic_webresearch.agent import academic_websearch_agent
 
 root_agent = Agent(
         name="academic_coordinator",
-        model='gemini-3.5-flash-lite',
+        model='gemini-2.5-flash',
         description=(
             "Analyzes seminal papers provided by users, provides research advice, "
             "locates current papers relevant to the seminal paper, generates suggestions "
