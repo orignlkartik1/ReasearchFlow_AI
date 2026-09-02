@@ -3,7 +3,7 @@ from google.adk.tools.agent_tool import AgentTool
 
 from . import prompt
 from .sub_agents.academic_newresearch.agent import academic_newresearch_agent
-from .sub_agents.academic_webresearch.agent import create_academic_websearch_agent
+from .sub_agents.academic_webresearch.agent import academic_websearch_agent
 
 
 root_agent = Agent(
@@ -18,7 +18,7 @@ root_agent = Agent(
         output_key="seminal_paper",
         tools=[
             AgentTool(agent=academic_newresearch_agent),
-            AgentTool(agent=create_academic_newresearch_agent(llm_model)),
+            AgentTool(agent=academic_websearch_agent),
         ],
     )
 
