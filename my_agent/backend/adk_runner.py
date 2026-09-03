@@ -4,13 +4,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from my_agent.agent import create_root_agent
-from my_agent.llm_config import (
-    get_available_llm_models,
-    get_available_search_models,
-    is_retryable_llm_error,
-    validate_model_environment,
-)
+from my_agent.agent import root_agent
+
 
 APP_NAME = "ResearchFlowAI"
 logger = logging.getLogger(__name__)
@@ -23,10 +18,7 @@ _created_sessions = set()
 def _create_runner(llm_model: str, search_model: str) -> Runner:
     return Runner(
         app_name=APP_NAME,
-        agent=create_root_agent(
-            llm_model=llm_model,
-            search_model=search_model,
-        ),
+        agent=root_agent,
         session_service=session_service,
     )
 
