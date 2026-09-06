@@ -37,7 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Welcome to ResearchFlow AI!\n\n"
         "I can help you analyze research papers, discover recent work, "
         "and suggest future research directions.\n\n"
-        "Send me a message to begin."
+        "Send me a research paper file  to begin."
     )
 
 
