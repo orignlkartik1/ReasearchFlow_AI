@@ -102,7 +102,7 @@ async def send_long_message(bot: Any, chat_id: int | str, text: str, **kwargs: A
 async def reply_long_text(message: Message, text: str, **kwargs: Any) -> list[Message]:
     return await send_long_message(
         message.get_bot(),
-        message.chat_id,
+        message.chat.id,
         text,
         **kwargs,
     )

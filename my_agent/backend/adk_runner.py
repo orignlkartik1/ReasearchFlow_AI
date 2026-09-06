@@ -15,7 +15,9 @@ session_service = InMemorySessionService()
 _created_sessions = set()
 
 
-def _create_runner(llm_model: str, search_model: str) -> Runner:
+def _create_runner(llm_model: str | None = None, search_model: str | None = None) -> Runner:
+    # Runner is created with the pre-configured root_agent. Optional llm/search
+    # parameters are accepted for future extensibility but are not required
     return Runner(
         app_name=APP_NAME,
         agent=root_agent,
@@ -39,9 +41,8 @@ async def _run_once(
     session_id: str,
     message: str,
     llm_model: str,
-    search_model: str,
 ) -> str:
-    runner = _create_runner(llm_model, search_model)
+    runner = _create_runner(llm_model=llm_model)
     content = types.Content(
         role="user",
         parts=[types.Part(text=message)],
@@ -56,64 +57,25 @@ async def _run_once(
         if event.is_final_response() and event.content:
             answer = "".join(
                 part.text
-                for part in event.content.parts
+                for part in event.content.part
                 if getattr(part, "text", None)
             )
 
     return answer
 
 
-def _model_attempts() -> list[tuple[str, str]]:
-    attempts = []
-    for llm_model in get_available_llm_models():
-        for search_model in get_available_search_models():
-            attempt = (llm_model, search_model)
-            if attempt not in attempts:
-                attempts.append(attempt)
-    return attempts
-
-
 async def ask_agent(user_id: str, message: str) -> str:
-    validate_model_environment()
+    """Run the configured root agent once for the given user/message.
 
+    This is a simplified runner: it ensures a session exists and runs the
+    agent once. More advanced retry/fallback logic can be added later.
+    """
     session_id = user_id
     await _ensure_session(user_id, session_id)
 
-    attempts = _model_attempts()
-    retryable_errors = []
-
-    for index, (llm_model, search_model) in enumerate(attempts, start=1):
-        try:
-            logger.info(
-                "Running ResearchFlow AI with llm_model=%s search_model=%s",
-                llm_model,
-                search_model,
-            )
-            return await _run_once(
-                user_id=user_id,
-                session_id=session_id,
-                message=message,
-                llm_model=llm_model,
-                search_model=search_model,
-            )
-        except Exception as exc:
-            if not is_retryable_llm_error(exc):
-                raise RuntimeError(f"Agent run failed: {exc}") from exc
-
-            retryable_errors.append(f"{llm_model}/{search_model}: {exc}")
-            if index == len(attempts):
-                break
-
-            next_llm_model, next_search_model = attempts[index]
-            logger.warning(
-                "Model attempt failed; retrying with llm_model=%s search_model=%s",
-                next_llm_model,
-                next_search_model,
-                exc_info=True,
-            )
-
-    raise RuntimeError(
-        "All configured model attempts failed due to transient provider errors. "
-        "Attempts: "
-        + " | ".join(retryable_errors)
-    )
+    try:
+        # Use the default model configured on the root_agent unless specified
+        return await _run_once(user_id=user_id, session_id=session_id, message=message, llm_model=None)
+    except Exception as exc:
+        logger.exception("ask_agent failed for user %s", user_id)
+        raise RuntimeError(f"Agent execution failed: {exc}") from exc
