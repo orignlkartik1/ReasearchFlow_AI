@@ -4,22 +4,23 @@
 
 ## 1. Purpose
 
-This Low-Level Design (LLD) describes the concrete modules, functions, data contracts, and runtime logic used by the current ResearchFlow AI implementation. It should be read with [HLD.md](./HLD.md), [ARCHITECTURE.md](./ARCHITECTURE.md), and [SRS.md](./SRS.md).
+This Low-Level Design describes the concrete modules, functions, data contracts, and runtime logic used by the current ResearchFlow AI implementation. It should be read with [SRS.md](./SRS.md), [DESIGN.md](./DESIGN.md), and [HLD.md](./HLD.md).
 
 ## 2. Module Design
 
 | Module | Primary Items | Responsibility |
 |--------|---------------|----------------|
-| `my_agent/env.py` | `load_environment`, `require_env` | Loads `my_agent/.env` and validates required values |
-| `my_agent/llm_config.py` | model getters, validators, retry detection | Handles model selection, fallback lists, credential checks |
-| `my_agent/agent.py` | `create_root_agent`, `root_agent` | Builds the coordinator agent and wires sub-agent tools |
-| `my_agent/prompt.py` | `ACADEMIC_COORDINATOR_PROMPT` | Defines coordinator behavior |
-| `my_agent/backend/main.py` | `app`, `/chat`, `/telegram/webhook` | Defines FastAPI app, routes, Telegram lifecycle |
-| `my_agent/backend/adk_runner.py` | `ask_agent`, `_run_once`, `_model_attempts` | Runs ADK agents with in-memory sessions and fallback attempts |
-| `my_agent/backend/telegram.py` | `start`, `chat`, webhook helpers | Handles Telegram user interactions |
-| `my_agent/backend/telegram_messages.py` | split/send/edit/delete helpers | Handles Telegram message size and API edge cases |
-| `academic_webresearch/agent.py` | `create_academic_websearch_agent` | Creates retrieval sub-agent |
-| `academic_newresearch/agent.py` | `create_academic_newresearch_agent` | Creates synthesis sub-agent |
+| `my_agent/env.py` | `ENV_PATH`, `load_environment`, `require_env` | Loads `my_agent/.env` once and validates required environment variables |
+| `my_agent/agent.py` | `root_agent` | Defines the root ADK coordinator and wires sub-agents through `AgentTool` |
+| `my_agent/prompt.py` | `ACADEMIC_COORDINATOR_PROMPT` | Defines the coordinator workflow and output expectations |
+| `my_agent/backend/main.py` | `app`, `lifespan`, `ChatRequest`, `chat`, `telegram_webhook` | Defines FastAPI lifecycle and HTTP routes |
+| `my_agent/backend/adk_runner.py` | `APP_NAME`, `session_service`, `_ensure_session`, `_run_once`, `ask_agent` | Runs ADK agents and manages process-local sessions |
+| `my_agent/backend/telegram.py` | `start`, `chat`, `create_telegram_application`, `process_telegram_update`, `set_telegram_webhook`, `delete_telegram_webhook` | Handles Telegram commands, messages, webhook setup, and debug polling |
+| `my_agent/backend/telegram_messages.py` | `split_telegram_message`, `send_long_message`, `reply_long_text`, `safe_delete_message`, `safe_edit_text` | Handles Telegram message limits and send/edit/delete failures |
+| `my_agent/sub_agents/academic_webresearch/agent.py` | `academic_websearch_agent` | Defines the retrieval sub-agent using `google_search` |
+| `my_agent/sub_agents/academic_webresearch/prompt.py` | `ACADEMIC_WEBSEARCH_PROMPT` | Defines recent citing-paper search behavior |
+| `my_agent/sub_agents/academic_newresearch/agent.py` | `academic_newresearch_agent` | Defines the future research synthesis sub-agent |
+| `my_agent/sub_agents/academic_newresearch/prompt.py` | `ACADEMIC_NEWRESEARCH_PROMPT` | Defines future research output behavior |
 
 ## 3. API Contracts
 
@@ -43,7 +44,7 @@ Success response:
 
 Error behavior:
 
-- Runtime agent failures are converted to `503`.
+- Runtime agent failures are converted to `HTTPException(status_code=503)`.
 - FastAPI/Pydantic validation handles invalid request bodies.
 
 ### 3.2 `POST /telegram/webhook`
@@ -55,70 +56,110 @@ Inputs:
 
 Behavior:
 
-- Rejects invalid webhook secrets with `403`.
+- Rejects invalid webhook secrets with `403` when `TELEGRAM_WEBHOOK_SECRET` is configured.
 - Rejects invalid JSON with `400`.
-- Schedules Telegram update processing in a background task.
-- Returns `{"ok": true}` after accepting the update.
+- Adds `process_telegram_update(payload)` as a FastAPI background task.
+- Returns `{"ok": true}` once the update is accepted for processing.
 
-## 4. Agent Construction
+## 4. FastAPI Lifecycle
 
-`create_root_agent` accepts optional `llm_model` and `search_model` values. When values are not provided, they are loaded from environment configuration.
+`main.py` defines an async lifespan context manager:
 
 ```text
-create_root_agent
+lifespan
     |
-    +-- create_academic_websearch_agent(search_model)
-    |
-    +-- create_academic_newresearch_agent(llm_model)
+    +-- telegram_app.initialize()
+    +-- telegram_app.start()
+    +-- optional set_telegram_webhook()
+    +-- yield
+    +-- telegram_app.stop()
+    +-- telegram_app.shutdown()
 ```
 
-The coordinator exposes both sub-agents as ADK `AgentTool` instances.
+`TELEGRAM_WEBHOOK_URL` controls automatic webhook registration. `TELEGRAM_WEBHOOK_SECRET` is passed to Telegram during webhook setup and is also used for request validation.
 
-## 5. Session Handling
+## 5. Agent Construction
+
+`agent.py` defines `root_agent` directly:
+
+```text
+academic_coordinator
+    |
+    +-- AgentTool(academic_newresearch_agent)
+    +-- AgentTool(academic_websearch_agent)
+```
+
+The coordinator and both sub-agents currently use `gemini-2.5-flash`.
+
+`academic_websearch_agent` includes the ADK `google_search` tool. `academic_newresearch_agent` does not declare external tools; it synthesizes from provided context.
+
+## 6. Session Handling
 
 `adk_runner.py` uses:
 
 - `APP_NAME = "ResearchFlowAI"`
 - `InMemorySessionService`
-- `_created_sessions` set
+- `_created_sessions: set`
 
-Session logic:
+Session flow:
 
 ```text
 ask_agent(user_id, message)
     |
-    +-- validate_model_environment()
     +-- session_id = user_id
     +-- _ensure_session(user_id, session_id)
-    +-- build available model attempts
-    +-- run until success or non-retryable failure
+    +-- _run_once(user_id, session_id, message, llm_model=None)
+    +-- return final response text
 ```
 
-Current limitation: `_created_sessions` is process-local and does not persist across restarts.
+`_ensure_session` creates an ADK session only when the session ID is not already present in `_created_sessions`.
 
-## 6. Model Fallback Logic
+Current limitation: session tracking is process-local and is lost on restart.
 
-Environment variables:
+## 7. ADK Runner Behavior
 
-- `LLM_MODEL`
-- `LLM_MODEL_FALLBACKS`
-- `SEARCH_MODEL`
-- `SEARCH_MODEL_FALLBACKS`
+`_run_once`:
 
-Flow:
+1. Creates a `Runner` with `app_name`, `root_agent`, and `session_service`.
+2. Wraps the user message in `google.genai.types.Content`.
+3. Iterates over `runner.run_async(...)`.
+4. Captures text from final response events.
+5. Returns the final answer string.
 
-1. Load ordered primary and fallback models.
-2. Validate model support through ADK `LLMRegistry`.
-3. Validate that search models are Gemini-compatible.
-4. Filter models with missing provider credentials.
-5. Build `(llm_model, search_model)` attempts.
-6. Retry only when `is_retryable_llm_error` detects transient provider failure markers.
+`ask_agent` catches any exception from the run, logs it, and raises `RuntimeError("Agent execution failed: ...")`.
 
-Non-retryable errors are returned immediately as runtime failures.
+## 8. Telegram Handler Behavior
 
-## 7. Telegram Message Handling
+### `/start`
 
-Telegram response handling is split across `telegram.py` and `telegram_messages.py`.
+`start(update, context)`:
+
+- Ignores updates without a message.
+- Replies with a short ResearchFlow AI welcome message.
+
+### Text Messages
+
+`chat(update, context)`:
+
+1. Ignores malformed updates without a message, user, or chat.
+2. Ignores messages with no text.
+3. Uses Telegram `typing` chat action.
+4. Sends a processing message.
+5. Calls `ask_agent(user_id, message)`.
+6. Deletes the processing message and sends the response.
+7. Edits the processing message with an error if agent execution fails.
+
+### Polling Guard
+
+When `telegram.py` is executed directly, polling starts only if:
+
+```text
+ENABLE_TELEGRAM_POLLING=1
+```
+
+Otherwise, it raises a `RuntimeError` instructing operators to use the FastAPI webhook path.
+
+## 9. Telegram Message Handling
 
 Important constants:
 
@@ -127,12 +168,13 @@ Important constants:
 
 Long response behavior:
 
-1. If response fits, send one message.
-2. If response exceeds the message limit, split by paragraph, newline, then space.
-3. If response exceeds the attachment threshold, create a temporary text file and send it as a document.
-4. Log Telegram API failures without crashing the process.
+1. If response length is within the limit, send one message.
+2. If response exceeds the limit, split by paragraph, then newline, then space.
+3. If response exceeds the attachment threshold, create a temporary UTF-8 text file and send it as a document.
+4. Continue sending remaining chunks even if one chunk fails.
+5. Log Telegram API failures without crashing the process.
 
-## 8. Environment Loading
+## 10. Environment Loading
 
 `my_agent/env.py` loads:
 
@@ -140,26 +182,26 @@ Long response behavior:
 my_agent/.env
 ```
 
-`require_env(name)` raises `RuntimeError` when a required variable is missing. The Telegram bot uses this for `TELEGRAM_TOKEN`.
+`load_environment()` is idempotent and uses `override=False`, so process environment variables take precedence over `.env` values.
 
-The FastAPI app calls `load_environment()` before reading webhook configuration so local `.env` webhook settings are available at startup.
+`require_env(name)` raises `RuntimeError` when a required variable is missing. `telegram.py` requires `TELEGRAM_TOKEN` at import time.
 
-## 9. Error Handling
+## 11. Error Handling
 
 | Area | Error | Handling |
 |------|-------|----------|
-| Missing required env | `RuntimeError` | Startup or request failure with actionable message |
-| Invalid webhook secret | `HTTPException(403)` | Request rejected |
-| Invalid webhook JSON | `HTTPException(400)` | Request rejected |
-| Agent non-retryable failure | `RuntimeError` then `HTTPException(503)` | Returned to API caller |
-| Telegram send/edit/delete failure | Logged exception | Bot continues processing |
-| Transient provider failure | Retry next configured attempt | Fails only after all attempts fail |
+| Missing required env | `RuntimeError` | Startup/import failure with actionable message |
+| Invalid `/chat` body | Pydantic validation error | FastAPI validation response |
+| Agent execution failure | Exception from ADK runner | Logged and returned as `503` from `/chat` |
+| Invalid webhook secret | Secret mismatch | `HTTPException(403)` |
+| Invalid webhook JSON | JSON parsing failure | `HTTPException(400)` |
+| Telegram send/edit/delete failure | Telegram API or unexpected exception | Logged; bot continues |
+| Direct polling without opt-in | Missing `ENABLE_TELEGRAM_POLLING=1` | `RuntimeError` |
 
-## 10. Extension Points
+## 12. Extension Points
 
-- Add new sub-agents under `my_agent/sub_agents/` and wire them into `create_root_agent`.
-- Add persistent session storage by replacing `InMemorySessionService`.
-- Add direct PDF parsing before coordinator invocation.
-- Add authentication and rate limiting at the FastAPI layer.
-- Add structured logging and metrics around `ask_agent`.
-
+- Add new sub-agents under `my_agent/sub_agents/` and expose them through `AgentTool`.
+- Replace `InMemorySessionService` with persistent session storage.
+- Add PDF parsing before the coordinator prompt is invoked.
+- Add authentication and rate limiting to FastAPI routes.
+- Add tests for `/chat`, webhook secret validation, long-message splitting, and ADK runner error behavior.

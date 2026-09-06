@@ -2,8 +2,8 @@
 
 ## ResearchFlow AI
 
-**Document Version:** 4.1  
-**Date:** 2026-08-08  
+**Document Version:** 4.2  
+**Date:** 2026-09-07  
 **Project:** ResearchFlow AI - Academic Research Assistant  
 **Author:** orignlkartik1
 
@@ -11,18 +11,19 @@
 
 ### 1.1 Purpose
 
-ResearchFlow AI is a multi-agent assistant for academic literature exploration. It analyzes a seminal paper, discovers recent citing or related papers, and proposes future research directions through a conversational API and Telegram interface.
+ResearchFlow AI is a multi-agent assistant for academic literature exploration. It analyzes a seminal paper or research prompt, discovers recent citing or related papers, and proposes future research directions through a direct HTTP API and a Telegram bot interface.
 
 ### 1.2 Scope
 
-The system includes:
+The current system includes:
 
 - Google ADK coordinator and sub-agent orchestration.
-- FastAPI backend with a `/chat` endpoint.
-- Telegram bot integration through webhook mode and optional local polling.
+- FastAPI backend with `/chat` and `/telegram/webhook`.
+- Telegram bot integration using `python-telegram-bot`.
+- Webhook-first Telegram runtime with optional local polling.
 - In-memory conversation sessions.
-- Model configuration and fallback support for reasoning and search agents.
-- Environment-based configuration for credentials and runtime options.
+- Environment-based configuration for credentials and webhook options.
+- Long Telegram response splitting and optional text attachment delivery.
 
 ### 1.3 Definitions
 
@@ -30,8 +31,8 @@ The system includes:
 |------|------------|
 | ADK | Google Agent Development Kit |
 | AgentTool | ADK wrapper that allows one agent to call another agent |
-| Coordinator | Root agent that manages the complete workflow |
-| Seminal paper | Foundational academic work used as the starting point |
+| Coordinator | Root agent that manages the complete user-facing workflow |
+| Seminal paper | Foundational academic work used as the research starting point |
 | Session | Conversation context associated with a user ID |
 | Webhook | HTTP endpoint used by Telegram to deliver bot updates |
 
@@ -39,22 +40,23 @@ The system includes:
 
 ### 2.1 Product Perspective
 
-ResearchFlow AI is a Python service that combines:
+ResearchFlow AI is a Python service composed of:
 
 1. A Google ADK agent graph.
 2. A FastAPI HTTP application.
-3. A Telegram bot interface.
-4. External model, search, and Telegram APIs.
+3. A Telegram bot application managed by FastAPI lifecycle hooks.
+4. External Google model/search services and Telegram Bot API.
 
 ### 2.2 Product Functions
 
 - Accept research requests through HTTP or Telegram.
-- Extract useful context from a paper title, citation, abstract, or user-provided metadata.
+- Extract useful context from a paper title, citation, abstract, summary, or metadata.
 - Search for recent papers that cite or extend the seminal work.
 - Group recent papers by year and include source links where available.
 - Generate at least 10 future research areas when enough input evidence exists.
-- Preserve context for follow-up questions.
-- Retry transient model/provider failures using configured fallback models.
+- Preserve context for follow-up questions while the process is running.
+- Protect Telegram webhook requests with an optional shared secret.
+- Deliver long Telegram responses without exceeding Telegram message limits.
 
 ### 2.3 User Classes
 
@@ -70,15 +72,16 @@ ResearchFlow AI is a Python service that combines:
 - `uv` for dependency management
 - FastAPI with Uvicorn
 - Google ADK `2.3.0`
-- python-telegram-bot `22.8+`
+- `python-telegram-bot` `22.8+`
 - Internet access for model, search, and Telegram APIs
 
 ### 2.5 Constraints
 
-- Google Search tool support requires Gemini-compatible search models.
 - Credentials must be provided through environment variables or `my_agent/.env`.
+- `TELEGRAM_TOKEN` is required by the Telegram module.
 - In-memory sessions do not survive process restarts.
-- PDF parsing is a planned capability; current implementation primarily accepts text and metadata input.
+- Direct PDF parsing is not implemented in the current code.
+- Web research depends on the ADK Google Search tool and available public search results.
 
 ## 3. Functional Requirements
 
@@ -96,6 +99,7 @@ ResearchFlow AI is a Python service that combines:
 - **F2.3** The sub-agent shall target at least 10 distinct papers per year when available.
 - **F2.4** Results shall include title, authors, year, source, and link when available.
 - **F2.5** Results shall be deduplicated and grouped by year.
+- **F2.6** The sub-agent shall document search limitations when the target count cannot be met.
 
 ### 3.3 Future Research Synthesis
 
@@ -109,28 +113,32 @@ ResearchFlow AI is a Python service that combines:
 
 - **F4.1** The backend shall expose `POST /chat`.
 - **F4.2** The request body shall include `user_id` and `message`.
-- **F4.3** The backend shall create a session for a new user ID.
+- **F4.3** The backend shall create an ADK session for a new user ID.
 - **F4.4** The backend shall preserve context across requests for the same user ID while the process is running.
 - **F4.5** The backend shall return JSON containing a `response` field.
-- **F4.6** Runtime agent failures shall return a service error with a useful message.
+- **F4.6** Runtime agent failures shall return `503` with a useful message.
 
 ### 3.5 Telegram Interface
 
 - **F5.1** The bot shall respond to `/start`.
-- **F5.2** The bot shall forward text messages to the agent workflow.
-- **F5.3** The bot shall show a processing message while the agent runs.
-- **F5.4** The bot shall split long responses to respect Telegram message limits.
-- **F5.5** Very large responses may be delivered as text attachments.
-- **F5.6** Webhook mode shall support optional secret token validation.
-- **F5.7** Long polling shall be available only when explicitly enabled for local debugging.
+- **F5.2** The bot shall process text messages through the same ADK runner used by `/chat`.
+- **F5.3** The bot shall send Telegram typing status while work is in progress.
+- **F5.4** The bot shall show a processing message while the agent runs.
+- **F5.5** The bot shall split long responses to respect Telegram message limits.
+- **F5.6** Very large responses may be delivered as UTF-8 text attachments.
+- **F5.7** Webhook mode shall support optional secret token validation.
+- **F5.8** Long polling shall be available only when explicitly enabled for local debugging.
 
-### 3.6 Model Configuration
+### 3.6 Telegram Webhook
 
-- **F6.1** The system shall support `LLM_MODEL` and `SEARCH_MODEL`.
-- **F6.2** The system shall support ordered fallback lists through `LLM_MODEL_FALLBACKS` and `SEARCH_MODEL_FALLBACKS`.
-- **F6.3** The system shall validate configured model names before executing an agent run.
-- **F6.4** The system shall skip fallback models when required provider credentials are missing.
-- **F6.5** The system shall retry only transient provider errors on fallback models.
+- **F6.1** The backend shall expose `POST /telegram/webhook`.
+- **F6.2** The webhook shall accept Telegram update JSON.
+- **F6.3** The webhook shall reject invalid JSON with `400`.
+- **F6.4** The webhook shall reject invalid secret tokens with `403` when `TELEGRAM_WEBHOOK_SECRET` is configured.
+- **F6.5** The webhook shall schedule update processing in a background task and return `{"ok": true}`.
+- **F6.6** FastAPI startup shall initialize and start the Telegram application.
+- **F6.7** FastAPI shutdown shall stop and shut down the Telegram application.
+- **F6.8** FastAPI startup shall register the Telegram webhook when `TELEGRAM_WEBHOOK_URL` is configured.
 
 ## 4. Non-Functional Requirements
 
@@ -144,7 +152,8 @@ ResearchFlow AI is a Python service that combines:
 
 - **NF2.1** The backend shall handle malformed JSON and invalid webhook secrets.
 - **NF2.2** Telegram send/edit/delete errors shall be logged without crashing the process.
-- **NF2.3** Transient model failures shall use configured fallback attempts.
+- **NF2.3** Agent execution failures shall be logged and surfaced to callers with actionable messages.
+- **NF2.4** Long response chunk failures shall not prevent the bot from attempting later chunks.
 
 ### 4.3 Security
 
@@ -159,12 +168,13 @@ ResearchFlow AI is a Python service that combines:
 - **NF4.1** Code shall follow clear Python module boundaries.
 - **NF4.2** Agent prompts shall remain in prompt modules.
 - **NF4.3** Backend route handlers shall delegate agent execution to `adk_runner.py`.
-- **NF4.4** Documentation shall be updated with behavior-changing code changes.
+- **NF4.4** Telegram message delivery helpers shall remain separate from Telegram update handlers.
+- **NF4.5** Documentation shall be updated with behavior-changing code changes.
 
 ## 5. Architecture
 
 ```text
-Telegram User or API Client
+Telegram user or API client
         |
         v
 FastAPI app: my_agent.backend.main
@@ -185,10 +195,10 @@ Response returned to API client or Telegram user
 
 Design detail is maintained in:
 
-- [HLD.md](./HLD.md): high-level system design, system context, layers, deployment view, and major design decisions.
-- [LLD.md](./LLD.md): module-level design, concrete functions, API contracts, session logic, fallback behavior, and error handling.
+- [DESIGN.md](./DESIGN.md): product, interaction, agent, response, API, and runtime design.
+- [HLD.md](./HLD.md): high-level system design, system context, layers, deployment view, and major decisions.
+- [LLD.md](./LLD.md): module-level design, concrete functions, API contracts, session logic, and error handling.
 - [ARCHITECTURE.md](./ARCHITECTURE.md): concise architecture reference and data flow.
-- [DESIGN.md](./DESIGN.md): product, interaction, agent, response, API, and configuration design.
 
 ## 6. Data Requirements
 
@@ -196,14 +206,16 @@ Design detail is maintained in:
 
 - `user_id`
 - User message text
-- Paper title, DOI, abstract, citation, or metadata
-- Optional conversation context from existing in-memory session
+- Paper title, DOI, abstract, citation, summary, or metadata
+- Telegram update JSON for webhook requests
+- Optional conversation context from an existing in-memory session
 
 ### 6.2 Output Data
 
 - Paper summary and extracted metadata
 - Recent citing or related papers
 - Future research directions
+- Telegram chat messages or text attachments
 - Error details for recoverable failures
 
 ### 6.3 Storage
@@ -211,6 +223,7 @@ Design detail is maintained in:
 - Runtime sessions: in-memory ADK session service
 - Configuration: process environment and `my_agent/.env`
 - Logs: application logger output
+- Temporary files: text attachments for extremely large Telegram responses
 - Persistent storage: not currently implemented
 
 ## 7. Interface Requirements
@@ -241,14 +254,19 @@ Success response:
 - Accepts Telegram update JSON.
 - Validates `X-Telegram-Bot-Api-Secret-Token` when a secret is configured.
 - Schedules update processing in a background task.
+- Returns `{"ok": true}`.
 
 ## 8. Acceptance Criteria
 
 - [ ] `/chat` accepts valid requests and returns a response.
 - [ ] Sessions are reused for repeated `user_id` values.
 - [ ] `/telegram/webhook` rejects invalid secrets when a secret is configured.
+- [ ] `/telegram/webhook` rejects invalid JSON.
+- [ ] FastAPI startup initializes the Telegram application.
+- [ ] FastAPI shutdown stops the Telegram application.
+- [ ] The Telegram bot handles `/start`.
+- [ ] The Telegram bot handles text messages through `ask_agent`.
 - [ ] The Telegram bot handles long responses without exceeding message limits.
-- [ ] Model fallback configuration validates before execution.
 - [ ] Missing credentials fail with actionable messages.
 - [ ] README, SRS, HLD, LLD, architecture, design, security, contribution, code of conduct, and changelog documents are present.
 - [ ] No real secrets are included in documentation or examples.
@@ -262,6 +280,7 @@ Success response:
 - Export to Markdown, PDF, JSON, and BibTeX.
 - Authentication and per-user rate limiting for public deployments.
 - Structured observability with metrics and tracing.
+- Tests for API, Telegram, message splitting, and agent runner behavior.
 
 ## 10. Revision History
 
@@ -270,5 +289,6 @@ Success response:
 | 1.0 | 2026-07-09 | orignlkartik1 | Initial SRS |
 | 2.0 | 2026-07-12 | orignlkartik1 | Added backend, FastAPI, and session details |
 | 3.0 | 2026-07-18 | orignlkartik1 | Expanded multi-turn and future enhancement requirements |
-| 4.0 | 2026-08-08 | orignlkartik1 | Aligned requirements with current code, webhook mode, model fallback, and documentation set |
+| 4.0 | 2026-08-08 | orignlkartik1 | Aligned requirements with webhook mode, model fallback, and documentation set |
 | 4.1 | 2026-08-08 | orignlkartik1 | Added HLD and LLD references for complete design traceability |
+| 4.2 | 2026-09-07 | orignlkartik1 | Aligned requirements with current Telegram webhook implementation, ADK runner, and documentation updates |

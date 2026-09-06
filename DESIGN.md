@@ -2,50 +2,54 @@
 
 ## Product Goal
 
-ResearchFlow AI is designed to reduce the manual effort of early literature exploration. The assistant should help users move from a seminal paper to a structured view of recent work, open gaps, and future research directions.
+ResearchFlow AI reduces the manual effort of early academic literature exploration. A user should be able to provide a paper title, citation, abstract, metadata, or research prompt and receive a structured research response containing paper context, recent citing work, and potential future research directions.
 
 ## Design Document Map
 
-- [HLD.md](./HLD.md) describes the high-level system design, layers, deployment model, and major decisions.
-- [LLD.md](./LLD.md) describes implementation-level modules, functions, contracts, and error handling.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) provides a concise architecture overview.
-- [SRS.md](./SRS.md) remains the source for requirements and acceptance criteria.
+- [SRS.md](./SRS.md) defines requirements, constraints, interfaces, and acceptance criteria.
+- [HLD.md](./HLD.md) describes the high-level system design, layers, runtime flow, and deployment view.
+- [LLD.md](./LLD.md) describes modules, functions, contracts, session handling, and error behavior.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) provides a concise architecture reference.
 
 ## Interaction Design
 
 The primary interaction is conversational:
 
-1. The user provides a paper title, citation, abstract, or research prompt.
-2. The system identifies the paper context it can infer.
-3. The system searches for recent citing or related work.
-4. The system synthesizes future research directions.
-5. The user can ask follow-up questions in the same session.
+1. The user submits a research request through Telegram or `POST /chat`.
+2. The coordinator agent determines what paper context can be inferred from the request.
+3. The coordinator asks the web research sub-agent to search for recent citing or related papers.
+4. The coordinator asks the future research sub-agent to synthesize potential research directions.
+5. The system returns a structured answer.
+6. The user can ask follow-up questions in the same in-memory session.
 
-Telegram is optimized for quick access and lightweight follow-up. The HTTP API is optimized for integration and testing.
+Telegram is optimized for lightweight, ongoing chat. The HTTP API is optimized for integration, testing, and non-Telegram clients.
 
 ## Agent Design
 
 The agent graph uses a coordinator pattern:
 
-- The coordinator owns the user-facing workflow and final response.
-- The web research sub-agent owns retrieval through Google Search.
-- The future research sub-agent owns synthesis and ideation.
+- `academic_coordinator` owns the user-facing workflow and final response.
+- `academic_websearch_agent` owns retrieval using the ADK `google_search` tool.
+- `academic_newresearch_agent` owns synthesis of gaps and future directions.
 
-This keeps retrieval and synthesis separate, which makes prompts easier to maintain and lets each sub-agent evolve independently.
+The coordinator exposes sub-agents as ADK `AgentTool` tools. This keeps retrieval and synthesis responsibilities separate while allowing the root agent to compose the final response.
 
 ## Response Design
 
-Responses should be structured, source-aware, and clear about uncertainty. The system should prefer:
+Responses should be structured and explicit about missing information. The system should prefer:
 
-- Headings for major sections.
-- Grouping papers by publication year.
-- Explicit counts for found papers.
+- Clear section headings for paper context, recent papers, and future directions.
+- Grouping recent papers by publication year.
+- Counts of distinct papers found per year.
+- Title, authors, year, source, and link when available.
 - Short rationales for future research suggestions.
-- Clear messages when evidence is missing or search results are limited.
+- Direct statements when metadata, citations, or evidence are unavailable.
+
+For Telegram, responses must also respect chat delivery constraints. Long responses are split into multiple messages. Extremely large responses can be delivered as a text attachment.
 
 ## API Design
 
-The `/chat` endpoint intentionally uses a minimal request contract:
+The direct chat API intentionally keeps a minimal contract:
 
 ```json
 {
@@ -54,25 +58,51 @@ The `/chat` endpoint intentionally uses a minimal request contract:
 }
 ```
 
-`user_id` doubles as the ADK session identifier. This keeps multi-turn context simple for current local and single-instance deployments.
+`user_id` is also used as the ADK session identifier. This keeps context management simple for the current single-process implementation.
+
+The Telegram webhook endpoint accepts raw Telegram update JSON and delegates processing to the Telegram application in a FastAPI background task. Optional webhook secret validation is controlled by environment configuration.
+
+## Telegram Runtime Design
+
+Webhook mode is the intended runtime design:
+
+- FastAPI starts and stops the Telegram application through its lifespan hook.
+- `TELEGRAM_WEBHOOK_URL`, when set, is registered at startup.
+- `TELEGRAM_WEBHOOK_SECRET`, when set, is checked against Telegram's secret-token header.
+- Incoming updates are processed through `process_telegram_update`.
+
+Long polling remains available only for local debugging. It is guarded by `ENABLE_TELEGRAM_POLLING=1` so production deployments do not accidentally start polling.
 
 ## Configuration Design
 
-Runtime configuration is environment-based. `my_agent/.env` is supported for local development through `python-dotenv`; production deployments should use environment variables or a secret manager.
+Runtime configuration is environment-based. `my_agent/.env` is loaded through `python-dotenv` for local development, while deployed environments should provide values through the process environment or a secret manager.
 
-Model fallback is configured through comma-separated ordered lists. The runner validates model support and credentials before execution so misconfiguration fails early.
+Required:
+
+- `GOOGLE_API_KEY`
+- `TELEGRAM_TOKEN`
+
+Optional:
+
+- `TELEGRAM_WEBHOOK_URL`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `ENABLE_TELEGRAM_POLLING`
+
+The current code uses fixed `gemini-2.5-flash` model declarations in the coordinator and sub-agent modules.
 
 ## Current Tradeoffs
 
 - In-memory sessions are simple but not durable.
-- Telegram webhook mode is production-friendly, while polling remains available only for debugging.
-- Search depends on general web results rather than direct scholarly database APIs.
-- PDF parsing is not yet implemented even though it is part of the product direction.
+- The session ID is the same as `user_id`, which gives one active conversation context per user per process.
+- Webhook mode is better suited to deployment than polling.
+- Search depends on general Google Search results through ADK rather than direct scholarly database APIs.
+- Direct PDF parsing is not implemented yet, despite being part of the product direction.
 
 ## Future Design Direction
 
-- Add persistent sessions and user preferences.
-- Add PDF/document ingestion.
+- Add persistent sessions and user-level history.
+- Add direct PDF/document ingestion.
+- Add scholarly database integrations.
 - Add structured result export.
 - Add citation graph exploration.
 - Add a web dashboard for saved research projects.
