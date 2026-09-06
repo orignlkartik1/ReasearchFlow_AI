@@ -6,7 +6,6 @@ from google.genai import types
 
 from my_agent.agent import root_agent
 
-
 APP_NAME = "ResearchFlowAI"
 logger = logging.getLogger(__name__)
 
@@ -14,16 +13,12 @@ session_service = InMemorySessionService()
 
 _created_sessions = set()
 
-
 def _create_runner(llm_model: str | None = None, search_model: str | None = None) -> Runner:
-    # Runner is created with the pre-configured root_agent. Optional llm/search
-    # parameters are accepted for future extensibility but are not required
     return Runner(
         app_name=APP_NAME,
         agent=root_agent,
         session_service=session_service,
     )
-
 
 async def _ensure_session(user_id: str, session_id: str) -> None:
     # Create the session only once
@@ -63,13 +58,7 @@ async def _run_once(
 
     return answer
 
-
 async def ask_agent(user_id: str, message: str) -> str:
-    """Run the configured root agent once for the given user/message.
-
-    This is a simplified runner: it ensures a session exists and runs the
-    agent once. More advanced retry/fallback logic can be added later.
-    """
     session_id = user_id
     await _ensure_session(user_id, session_id)
 
